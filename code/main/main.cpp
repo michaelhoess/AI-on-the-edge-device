@@ -333,7 +333,6 @@ extern "C" void app_main(void)
                     // Init camera
                     // ********************************************
                     esp_err_t camStatus = ESP_OK;
-                    Camera.LightOnOff(true);
 
                     for (int i = 0; i < 3; i++)
                     {

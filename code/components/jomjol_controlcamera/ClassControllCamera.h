@@ -80,7 +80,7 @@ protected:
     void SanitizeZoomParams(int imageSize, int frameSizeX, int frameSizeY, int &imageWidth, int &imageHeight, int &zoomOffsetX, int &zoomOffsetY);
 
 public:
-    int LedIntensity = 4096;
+    int LedIntensity = 4096; // PWM duty (0..8191), not percent -> use SetLEDIntensity() to set it from a percentage
 
     CCamera(void);
     esp_err_t InitCam(void);

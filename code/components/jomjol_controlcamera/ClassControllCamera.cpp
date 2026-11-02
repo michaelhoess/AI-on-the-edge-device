@@ -119,7 +119,6 @@ CCamera::CCamera(void)
 
 	CCstatus.ImageQuality = camera_config.jpeg_quality;
     CCstatus.ImageFrameSize = camera_config.frame_size;
-	SetLEDIntensity(LedIntensity);
     CCstatus.WaitBeforePicture = 2;
 
     ledc_init();

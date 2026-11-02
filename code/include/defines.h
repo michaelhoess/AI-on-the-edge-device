@@ -62,6 +62,9 @@
     #define CAM_LIVESTREAM_REFRESHRATE 500      // Camera livestream feature: Waiting time in milliseconds to refresh image
     // #define GRAYSCALE_AS_DEFAULT
 
+    //ClassFlowTakeImage
+    #define CAPTURE_MAX_ATTEMPTS 3              // Capture attempts per round: retry, then re-initialize the camera before the last attempt; reboot if all fail
+
 
     //server_GPIO
     #define __LEDGLOBAL

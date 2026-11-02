@@ -84,6 +84,7 @@ public:
 
     CCamera(void);
     esp_err_t InitCam(void);
+    esp_err_t ReinitCam(void);
 
     void LightOnOff(bool status);
     void LEDOnOff(bool status);

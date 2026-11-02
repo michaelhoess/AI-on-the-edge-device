@@ -176,6 +176,31 @@ esp_err_t CCamera::InitCam(void)
     }
 }
 
+// Re-initialize the camera at runtime, e.g. if the sensor no longer delivers valid frames
+esp_err_t CCamera::ReinitCam(void)
+{
+    LogFile.WriteToFile(ESP_LOG_WARN, TAG, "Re-initializing camera...");
+
+    esp_camera_deinit();
+    CCstatus.CameraInitSuccessful = false;
+
+    esp_err_t err = InitCam(); // Includes a power cycle via the power down line (if available)
+    if (err != ESP_OK)
+    {
+        char errHex[33];
+        sprintf(errHex, "0x%02x", err);
+        LogFile.WriteToFile(ESP_LOG_ERROR, TAG, "Re-initializing camera failed (" + std::string(errHex) + ")");
+        return err;
+    }
+
+    // The sensor settings got lost with the de-init, apply the configured ones again
+    setSensorDatenFromCCstatus();
+    SetQualityZoomSize(CCstatus.ImageQuality, CCstatus.ImageFrameSize, CCstatus.ImageZoomEnabled, CCstatus.ImageZoomOffsetX, CCstatus.ImageZoomOffsetY, CCstatus.ImageZoomSize, CCstatus.ImageVflip);
+
+    LogFile.WriteToFile(ESP_LOG_INFO, TAG, "Camera re-initialized");
+    return ESP_OK;
+}
+
 bool CCamera::testCamera(void)
 {
     bool success;
@@ -659,9 +684,7 @@ esp_err_t CCamera::CaptureToBasisImage(CImageBasis *_Image, int delay)
         LEDOnOff(false);   // Status-LED off
         LightOnOff(false); // Flash-LED off
 
-        LogFile.WriteToFile(ESP_LOG_ERROR, TAG, "is not working anymore (CaptureToBasisImage) - most probably caused "
-                                                "by a hardware problem (instablility, ...). System will reboot.");
-        doReboot();
+        LogFile.WriteToFile(ESP_LOG_ERROR, TAG, "CaptureToBasisImage: Camera delivered no frame");
 
         return ESP_FAIL;
     }
@@ -674,10 +697,11 @@ esp_err_t CCamera::CaptureToBasisImage(CImageBasis *_Image, int delay)
     }
 
     CImageBasis *tmpImage = new CImageBasis("tmpImage");
+    bool imageLoaded = false;
 
     if (tmpImage)
     {
-        tmpImage->LoadFromMemory(fb->buf, fb->len);
+        imageLoaded = tmpImage->LoadFromMemory(fb->buf, fb->len);
     }
     else
     {
@@ -704,9 +728,10 @@ esp_err_t CCamera::CaptureToBasisImage(CImageBasis *_Image, int delay)
     LogFile.WriteHeapInfo("CaptureToBasisImage - After LoadFromMemory");
 #endif
 
-    if (tmpImage == NULL)
+    if (!imageLoaded)
     {
-        return ESP_OK;
+        delete tmpImage;
+        return ESP_FAIL;
     }
 
     int channels = 3;

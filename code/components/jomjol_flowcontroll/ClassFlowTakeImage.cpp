@@ -10,6 +10,7 @@
 #include "CImageBasis.h"
 #include "ClassControllCamera.h"
 #include "MainFlowControl.h"
+#include "server_ota.h"
 
 #include "esp_wifi.h"
 #include "esp_log.h"
@@ -33,7 +34,7 @@ esp_err_t ClassFlowTakeImage::camera_capture(void)
     return ESP_OK;
 }
 
-void ClassFlowTakeImage::takePictureWithFlash(int flash_duration)
+bool ClassFlowTakeImage::takePictureWithFlash(int flash_duration)
 {
     // in case the image is flipped, it must be reset here //
     rawImage->width = CCstatus.ImageWidth;
@@ -41,7 +42,32 @@ void ClassFlowTakeImage::takePictureWithFlash(int flash_duration)
 
     ESP_LOGD(TAG, "flash_duration: %d", flash_duration);
 
-    Camera.CaptureToBasisImage(rawImage, flash_duration);
+    // A single broken frame should not reboot the device: retry first and
+    // re-initialize the camera (power cycle) before the last attempt
+    esp_err_t err = Camera.CaptureToBasisImage(rawImage, flash_duration);
+
+    for (int attempt = 2; (err != ESP_OK) && (attempt <= CAPTURE_MAX_ATTEMPTS); attempt++)
+    {
+        LogFile.WriteToFile(ESP_LOG_WARN, TAG, "Capturing image failed, attempt " + std::to_string(attempt) + " of " +
+                                               std::to_string(CAPTURE_MAX_ATTEMPTS) + "...");
+
+        // STBI takes its buffers from the shared PSRAM region and only gets them back at the end
+        // of this step, so the region must be reset before the next image can be decoded
+        psram_deinit_shared_memory_for_take_image_step();
+        psram_init_shared_memory_for_take_image_step();
+
+        if ((attempt == CAPTURE_MAX_ATTEMPTS) && (Camera.ReinitCam() != ESP_OK))
+        {
+            break;
+        }
+
+        err = Camera.CaptureToBasisImage(rawImage, flash_duration);
+    }
+
+    if (err != ESP_OK)
+    {
+        return false;
+    }
 
     time(&TimeImageTaken);
     localtime(&TimeImageTaken);
@@ -50,6 +76,8 @@ void ClassFlowTakeImage::takePictureWithFlash(int flash_duration)
     {
         rawImage->SaveToFile(namerawimage);
     }
+
+    return true;
 }
 
 void ClassFlowTakeImage::SetInitialParameter(void)
@@ -563,11 +591,20 @@ bool ClassFlowTakeImage::doFlow(string zwtime)
         CFstatus.changedCameraSettings = false;
     }
 
-    takePictureWithFlash(flash_duration);
+    bool pictureTaken = takePictureWithFlash(flash_duration);
 
 #ifdef WIFITURNOFF
     esp_wifi_start();
 #endif
+
+    if (!pictureTaken)
+    {
+        LogFile.WriteToFile(ESP_LOG_ERROR, TAG, "Camera is not working anymore - most probably caused by a hardware problem "
+                                                "(instability, ...). System will reboot.");
+        psram_deinit_shared_memory_for_take_image_step();
+        doReboot();
+        return false;
+    }
 
 #ifdef DEBUG_DETAIL_ON
     LogFile.WriteHeapInfo("ClassFlowTakeImage::doFlow - After takePictureWithFlash");

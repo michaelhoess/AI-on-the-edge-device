@@ -420,7 +420,7 @@ void CImageBasis::EmptyImage()
 }
 
 
-void CImageBasis::LoadFromMemory(stbi_uc *_buffer, int len)
+bool CImageBasis::LoadFromMemory(stbi_uc *_buffer, int len)
 {
     RGBImageLock();
 
@@ -432,16 +432,17 @@ void CImageBasis::LoadFromMemory(stbi_uc *_buffer, int len)
     rgb_image = stbi_load_from_memory(_buffer, len, &width, &height, &channels, STBI_rgb);
     bpp = channels;
     ESP_LOGD(TAG, "Image loaded from memory: %d, %d, %d", width, height, channels);
-    
-    if ((width * height * channels) == 0)
+
+    bool loaded = (rgb_image != NULL) && ((width * height * channels) != 0);
+    if (!loaded)
     {
-        LogFile.WriteToFile(ESP_LOG_ERROR, TAG, "Image with size 0 loaded --> reboot to be done! "
+        LogFile.WriteToFile(ESP_LOG_ERROR, TAG, "Image with size 0 loaded (decoding failed)! "
                 "Check that your camera module is working and connected properly.");
         LogFile.WriteHeapInfo("LoadFromMemory");
-
-        doReboot();
     }
     RGBImageRelease();
+
+    return loaded;
 }
 
 

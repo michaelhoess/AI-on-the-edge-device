@@ -5,6 +5,7 @@
 
 #include "esp_psram.h"
 #include "esp_pm.h"
+#include "esp_attr.h"
 
 #include "psram.h"
 
@@ -206,6 +207,51 @@ bool Init_NVS_SDCard()
     return true;
 }
 
+/* Number of reboots done to recover from a failed camera init. RTC_NOINIT memory survives
+ * software resets, but holds random data after power-on, hence the magic value. */
+#define CAM_INIT_REBOOT_MAGIC 0x43414D52 // "CAMR"
+static RTC_NOINIT_ATTR uint32_t camInitRebootMagic;
+static RTC_NOINIT_ATTR uint32_t camInitRebootCount;
+
+static void resetCamInitRebootCount(void)
+{
+    camInitRebootMagic = CAM_INIT_REBOOT_MAGIC;
+    camInitRebootCount = 0;
+}
+
+static void task_camInitRecoveryReboot(void *pvParameter)
+{
+    vTaskDelay(pdMS_TO_TICKS(CAM_INIT_REBOOT_DELAY_MIN * 60 * 1000));
+    doReboot();
+    vTaskDelete(NULL);
+}
+
+/* A camera which hangs after a software reset is often fine again after the next init
+ * (power cycle via power down line), so retry a few times instead of staying in the error state */
+static void scheduleCamInitRecoveryReboot(void)
+{
+    if (camInitRebootMagic != CAM_INIT_REBOOT_MAGIC)
+    {
+        resetCamInitRebootCount();
+    }
+
+    if (camInitRebootCount >= CAM_INIT_MAX_REBOOTS)
+    {
+        LogFile.WriteToFile(ESP_LOG_ERROR, TAG, "Camera init still failing after " + std::to_string(CAM_INIT_MAX_REBOOTS) +
+                                                " reboots, giving up. Check camera module and/or proper electrical connection");
+        return;
+    }
+
+    camInitRebootCount++;
+    LogFile.WriteToFile(ESP_LOG_WARN, TAG, "Trying to recover camera, reboot " + std::to_string(camInitRebootCount) + " of " +
+                                           std::to_string(CAM_INIT_MAX_REBOOTS) + " in " + std::to_string(CAM_INIT_REBOOT_DELAY_MIN) + " minutes...");
+
+    if (xTaskCreate(&task_camInitRecoveryReboot, "cam_recovery", 4 * 1024, NULL, tskIDLE_PRIORITY + 1, NULL) != pdPASS)
+    {
+        LogFile.WriteToFile(ESP_LOG_ERROR, TAG, "Failed to create camera recovery task!");
+    }
+}
+
 extern "C" void app_main(void)
 {
 // #ifdef CONFIG_HEAP_TRACING_STANDALONE
@@ -339,6 +385,7 @@ extern "C" void app_main(void)
                         camStatus = Camera.InitCam();
                         if (camStatus == ESP_OK)
                         {
+                            resetCamInitRebootCount(); // Camera works (again)
                             break;
                         }
                         // De-init in case it was already initialized
@@ -567,6 +614,11 @@ extern "C" void app_main(void)
     else
     { // Any other error is critical and makes running the flow impossible. Init is going to abort.
         LogFile.WriteToFile(ESP_LOG_ERROR, TAG, "Initialization failed. Flow task start aborted. Loading reduced web interface...");
+
+        if (isSetSystemStatusFlag(SYSTEM_STATUS_CAM_BAD))
+        {
+            scheduleCamInitRecoveryReboot();
+        }
     }
 }
 

@@ -65,6 +65,10 @@
     //ClassFlowTakeImage
     #define CAPTURE_MAX_ATTEMPTS 3              // Capture attempts per round: retry, then re-initialize the camera before the last attempt; reboot if all fail
 
+    //main
+    #define CAM_INIT_MAX_REBOOTS 3              // Reboots to recover from a failed camera init (counted across software resets) before giving up
+    #define CAM_INIT_REBOOT_DELAY_MIN 5         // Delay before such a reboot, keeps the reduced web interface reachable for diagnosis
+
 
     //server_GPIO
     #define __LEDGLOBAL
